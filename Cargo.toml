@@ -2,6 +2,10 @@
 name = "osect"
 version = "0.1.0"
 authors = ["Takafumi Hirata <takhirata6@gmail.com>"]
+build = "build.rs"
 
 [dependencies]
 nom = "3.2.1"
+
+[build-dependencies]
+bindgen = "0.32.1"
