@@ -4,7 +4,7 @@
 #![allow(non_snake_case)]
 
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
-#[macro_use(do_parse,call,map_res,count,count_fixed,error_position,many0,many1,named,char)]
+#[macro_use(do_parse,call,map,flat_map,map_res,count,count_fixed,error_position,many0,many1,named,char)]
 extern crate nom;
 use nom::{HexDisplay,Offset,Needed,IResult,ErrorKind,le_i8,le_u8,le_u64,le_u32,le_i32,anychar,digit};
 use nom::Err;
@@ -44,6 +44,72 @@ pub fn segment_command(input:&[u8]) -> IResult<&[u8], segment_command_64> {
     )
 }
 
+pub enum Segment {
+    RoutinesCommand(routines_command),
+    EncryptionInfoCommand(encryption_info_command),
+    SegmentCommand(segment_command),
+    RoutinesCommand64(routines_command_64),
+    EncryptionInfoCommand64(encryption_info_command_64),
+    SegmentCommand64(segment_command_64),
+    FvmlibCommand(fvmlib_command),
+    DylibCommand(dylib_command),
+    SubFrameworkCommand(sub_framework_command),
+    SubClientCommand(sub_client_command),
+    SubUmbrellaCommand(sub_umbrella_command),
+    SubLibraryCommand(sub_library_command),
+    PreboundDylibCommand(prebound_dylib_command),
+    DylinkerCommand(dylinker_command),
+    ThreadCommand(thread_command),
+    SymtabCommand(symtab_command),
+    DysymtabCommand(dysymtab_command),
+    TwolevelHintsCommand(twolevel_hints_command),
+    PrebindCksumCommand(prebind_cksum_command),
+    UuidCommand(uuid_command),
+    RpathCommand(rpath_command),
+    LinkeditDataCommand(linkedit_data_command),
+    VersionMinCommand(version_min_command),
+    BuildVersionCommand(build_version_command),
+    DyldInfoCommand(dyld_info_command),
+    LinkerOptionCommand(linker_option_command),
+    SymsegCommand(symseg_command),
+    IdentCommand(ident_command),
+    FvmfileCommand(fvmfile_command),
+    EntryPointCommand(entry_point_command),
+    SourceVersionCommand(source_version_command),
+    NoteCommand(note_command),
+}
+
+pub fn parse_command_header(input: &[u8]) -> IResult<&[u8], (u32, u32)> {
+    do_parse!(input,
+        cmd: le_u32 >>
+        cmdsize: le_u32 >>
+        (cmd, cmdsize)
+    )
+}
+
+pub fn parse_command(input: &[u8]) -> IResult<&[u8], Segment> {
+   do_parse!(input,
+       head: parse_command_header >>
+       body: parse_segment_command >>
+       (body)
+   )
+}
+
+pub fn parse_segment_command(input: &[u8]) -> IResult<&[u8], Segment> {
+    do_parse!(input,
+        segname: count_fixed!(::std::os::raw::c_char, le_i8, 16) >>
+        vmaddr: le_u64 >>
+        vmsize: le_u64 >>
+        fileoff: le_u64 >>
+        filesize: le_u64 >>
+        maxprot: le_i32 >>
+        initprot: le_i32 >>
+        nsects: le_u32 >>
+        flags: le_u32 >>
+        (Segment::SegmentCommand64(segment_command_64{cmd: 0, cmdsize: 0, segname, vmaddr, vmsize, fileoff, filesize, maxprot, initprot, nsects, flags}))
+    )
+}
+
 pub fn section(input:&[u8]) -> IResult<&[u8], section_64> {
     do_parse!(input,
         sectname: count_fixed!( ::std::os::raw::c_char, le_i8, 16) >>
@@ -70,4 +136,13 @@ fn main() {
 
     let header = header(&INPUT);
     println!("{:?}", header.unwrap());
+}
+
+#[cfg]
+mod test {
+    static INPUT:[u8;32] = [0xcfu8,0xfa,0xed,0xfe,0x07,0x00,0x00,0x01,0x03,0x00,0x00,0x80,0x02,0x00,0x00,0x00,0x1a,0x00,0x00,0x00,0x90,0x0b,0x00,0x00,0x85,0x00,0x20,0x00,0x00,0x00,0x00,0x00];
+    #[test]
+    fn test_parse_segment_command() {
+        
+    }
 }
