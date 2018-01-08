@@ -16,7 +16,7 @@ static INPUT:[u8;32] = [0xcfu8,0xfa,0xed,0xfe,0x07,0x00,0x00,0x01,0x03,0x00,0x00
 
 pub enum LoadCommand {
     SegmentCommand(segment_command),
-    SegmentCommand64(segment_command_64),
+    SegmentCommand64(segment_command_64, Vec<Section>),
     FvmlibCommand(fvmlib_command),
     DylibCommand(dylib_command),
     SubFrameworkCommand(sub_framework_command),
@@ -54,7 +54,7 @@ impl ::std::fmt::Display for LoadCommand {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         match self {
             &LoadCommand::SegmentCommand(_) => writeln!(f, "SegmentCommand"),
-            &LoadCommand::SegmentCommand64(_) => writeln!(f, "SegmentCommand64"),
+            &LoadCommand::SegmentCommand64(_, _) => writeln!(f, "SegmentCommand64"),
             &LoadCommand::FvmlibCommand(_) => writeln!(f, "FvmlibCommand"),
             &LoadCommand::DylibCommand(_) => writeln!(f, "DylibCommand"),
             &LoadCommand::SubFrameworkCommand(_) => writeln!(f, "SubFrameworkCommand"),
@@ -90,6 +90,10 @@ impl ::std::fmt::Display for LoadCommand {
     }
 }
 
+pub enum Section {
+    Section(section),
+    Section64(section_64),
+}
 
 pub fn header(input:&[u8]) -> IResult<&[u8], mach_header_64> {
     do_parse!(input,
@@ -131,7 +135,20 @@ pub fn parse_segment_command_64(cmd: u32, cmdsize: u32, input : &[u8]) -> IResul
         initprot: le_i32 >>
         nsects: le_u32 >>
         flags: le_u32 >>
-        (LoadCommand::SegmentCommand64(segment_command_64{cmd, cmdsize, segname, vmaddr, vmsize, fileoff, filesize, maxprot, initprot, nsects, flags}))
+        sections: count!(parse_section_64, nsects as usize) >>
+        (LoadCommand::SegmentCommand64(segment_command_64{
+            cmd,
+            cmdsize,
+            segname,
+            vmaddr,
+            vmsize,
+            fileoff,
+            filesize,
+            maxprot,
+            initprot,
+            nsects,
+            flags
+        }, sections))
     )
 }
 
@@ -141,7 +158,7 @@ pub fn parse_segment_command_64(cmd: u32, cmdsize: u32, input : &[u8]) -> IResul
 pub fn parse_dylib_command(cmd: u32, cmdsize: u32, input : &[u8]) -> IResult<&[u8], LoadCommand> {
     do_parse!(input,
         offset: le_u32 >> 
-        _name: count!(le_i8, cmdsize as usize) >>
+        _name: count!(le_i8, (cmdsize - 24) as usize) >>
         timestamp: le_u32 >>
         current_version: le_u32 >>
         compatibility_version: le_u32 >>
@@ -167,7 +184,7 @@ pub fn parse_dylib_command(cmd: u32, cmdsize: u32, input : &[u8]) -> IResult<&[u
 pub fn parse_dylinker_command(cmd: u32, cmdsize: u32, input : &[u8]) -> IResult<&[u8], LoadCommand> {
     do_parse!(input,
         offset: le_u32 >> 
-        _name: count!(le_i8, cmdsize as usize) >>
+        _name: count!(le_i8, (cmdsize - 12) as usize) >>
         (LoadCommand::DylinkerCommand(dylinker_command {
             cmd,
             cmdsize,
@@ -363,6 +380,37 @@ pub fn parse_note_command(input : &[u8]) -> IResult<&[u8], LoadCommand> {
     unimplemented!()
 }
 
+pub fn parse_section_64(input: &[u8]) -> IResult<&[u8], Section> {
+    do_parse!(input,
+        sectname: count_fixed!(::std::os::raw::c_char, le_i8, 16) >>
+        segname: count_fixed!(::std::os::raw::c_char, le_i8, 16) >>
+        addr: le_u64 >>
+        size: le_u64 >>
+        offset: le_u32 >>
+        align: le_u32 >>
+        reloff: le_u32 >>
+        nreloc: le_u32 >>
+        flags: le_u32 >>
+        reserved1: le_u32 >>
+        reserved2: le_u32 >>
+        reserved3: le_u32 >>
+        (Section::Section64(section_64{
+            sectname,
+            segname,
+            addr,
+            size,
+            offset,
+            align,
+            reloff,
+            nreloc,
+            flags,
+            reserved1,
+            reserved2,
+            reserved3,
+        }))
+    )
+}
+
 
 pub fn parse_command(input: &[u8]) -> IResult<&[u8], LoadCommand> {
     match le_u32(&input) {
@@ -381,7 +429,8 @@ pub fn parse_command(input: &[u8]) -> IResult<&[u8], LoadCommand> {
                         LC_LOAD_DYLIB => parse_dylib_command(cmd, cmdsize, &i),
                         LC_FUNCTION_STARTS => parse_linkedit_data_command(cmd, cmdsize, &i),
                         LC_DATA_IN_CODE => parse_linkedit_data_command(cmd, cmdsize, &i),
-                        x => panic!(format!("unknown {}", x)),
+                        LC_LOAD_DYLINKER => parse_dylinker_command(cmd, cmdsize, &i),
+                        x => panic!(format!("unknown {:02x}", x)),
                     }
                 },
                 _ => panic!("unexpected"),
