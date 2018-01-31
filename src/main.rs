@@ -3,6 +3,9 @@
 #![allow(non_camel_case_types)]
 #![allow(non_snake_case)]
 
+extern crate scroll;
+use scroll::{ctx, Pread, LE, Endian};
+use scroll::ctx::TryFromCtx;
 include!(concat!(env!("OUT_DIR"), "/bindings.rs"));
 #[macro_use(u32,tag,do_parse,call,map,flat_map,map_res,count,count_fixed,error_position,many0,many1,named,char)]
 extern crate nom;
@@ -95,6 +98,27 @@ pub enum Section {
     Section64(section_64),
 }
 
+ 
+impl<'a> ctx::TryFromCtx<'a, Endian> for mach_header_64 {
+  type Error = scroll::Error;
+  type Size = usize;
+  fn try_from_ctx(src: &'a [u8], endian: Endian)
+    -> Result<(Self, Self::Size), Self::Error> {
+    let offset = &mut 0;
+    let magic = src.gread::<u32>(offset)?;
+    let cputype = src.gread::<cpu_type_t>(offset)?;
+    let cpusubtype = src.gread::<cpu_subtype_t>(offset)?;
+    let filetype = src.gread::<u32>(offset)?;
+    let ncmds = src.gread::<u32>(offset)?;
+    let sizeofcmds = src.gread::<u32>(offset)?;
+    let flags = src.gread::<u32>(offset)?;
+    let reserved = src.gread::<u32>(offset)?;
+    Ok((mach_header_64{
+        magic, cputype, cpusubtype, filetype, ncmds, sizeofcmds, flags, reserved
+    }, *offset))
+  }
+}
+ 
 pub fn header(input:&[u8]) -> IResult<&[u8], mach_header_64> {
     do_parse!(input,
         magic: le_u32 >>
@@ -441,29 +465,44 @@ pub fn parse_command(input: &[u8]) -> IResult<&[u8], LoadCommand> {
 }
 
 fn main() {
-    let path = "target/debug/osect";
-    let mut file = File::open(path).unwrap();
-    let mut vec = vec![];
-    let _ = file.read_to_end(&mut vec);
-    let header = header(&vec).unwrap();
-    println!("{:?}", header.1);
-    let mut rest = header.0;
-    loop {
-        let command = match parse_command(&rest) {
-            IResult::Done(i, o) => {
-                rest = i;
-                println!("{}", o);
-            }
-            _ => {}
-        };
+    // let path = "target/debug/osect";
+    // let mut file = File::open(path).unwrap();
+    // let mut vec = vec![];
+    // let _ = file.read_to_end(&mut vec);
+    // let header = header(&vec).unwrap();
+    // println!("{:?}", header.1);
+    // let mut rest = header.0;
+    // loop {
+    //     let command = match parse_command(&rest) {
+    //         IResult::Done(i, o) => {
+    //             rest = i;
+    //             println!("{}", o);
+    //         }
+    //         _ => {}
+    //     };
+    // }
+    let header = mach_header_64::try_from_ctx(&INPUT, LE);
+    match header {
+        Ok((header, _)) => {
+            println!("magic {}", header.magic);
+            println!("cputype {:x}", header.cputype);
+            println!("cpusubtype {}", header.cpusubtype);
+            println!("filetype {}", header.filetype);
+            println!("ncmds {}", header.ncmds);
+        },
+        Err(e) => {
+            panic!(e);
+        }
     }
 }
 
 #[cfg(test)]
 mod test {
+    use super::try_from_ctx;
+    use scroll::LE;
     static INPUT:[u8;32] = [0xcfu8,0xfa,0xed,0xfe,0x07,0x00,0x00,0x01,0x03,0x00,0x00,0x80,0x02,0x00,0x00,0x00,0x1a,0x00,0x00,0x00,0x90,0x0b,0x00,0x00,0x85,0x00,0x20,0x00,0x00,0x00,0x00,0x00];
     #[test]
     fn test_parse_segment_command() {
-        
+        let header = mach_header_64.try_from_ctx(src, LE);
     }
 }
